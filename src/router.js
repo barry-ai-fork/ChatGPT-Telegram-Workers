@@ -1,23 +1,51 @@
 import {handleMessage} from './message.js';
 import {ENV} from './env.js';
-import {setCommandForTelegram} from './command.js';
+import {setCommandForTelegram,sendPostForTelegram} from './command.js';
 import {bindTelegramWebHook} from './telegram.js';
 
+function ResponseJson(result,status = 200) {
+  return new Response(JSON.stringify(result), {
+    status,
+    headers: {
+      'content-type': 'application/json;charset=UTF-8',
+    },
+  });
+}
+
 async function bindWebHookAction() {
-  const result = {};
+  let result = {};
   let domain = ENV.WORKERS_DOMAIN;
   if (domain.toLocaleLowerCase().startsWith('http')) {
     domain = new URL(domain).host;
   }
-  for (const token of ENV.TELEGRAM_AVAILABLE_TOKENS) {
+  for (let token of ENV.TELEGRAM_AVAILABLE_TOKENS) {
+    token = token.replace("\n","")
     const url = `https://${domain}/telegram/${token}/webhook`;
     const id = token.split(':')[0];
+    const webhook = await bindTelegramWebHook(token, url);
+    const command =  await setCommandForTelegram(token);
     result[id] = {
-      webhook: await bindTelegramWebHook(token, url),
-      command: await setCommandForTelegram(token),
+      webhook ,
+      command,
     };
   }
-  return new Response(JSON.stringify(result), {status: 200});
+  return result;
+}
+
+
+async function handleAction(cmd,body = {}) {
+  const result = {};
+  for (let token of ENV.TELEGRAM_AVAILABLE_TOKENS) {
+    token = token.replace("\n","")
+    const id = token.split(':')[0];
+    console.log({cmd,body})
+    result[id] = await sendPostForTelegram(token,cmd,body)
+    if(cmd === 'getWebhookInfo' && result[id].result.url){
+      console.log(result[id].result.url)
+      result[id].result.url = "xxx"
+    }
+  }
+  return result
 }
 
 // 处理Telegram回调
@@ -84,17 +112,20 @@ async function defaultIndexAction() {
 
 export async function handleRequest(request) {
   const {pathname} = new URL(request.url);
+  console.log(pathname)
   if (pathname === `/`) {
     return defaultIndexAction();
   }
-  if (pathname.startsWith(`/init`)) {
-    return bindWebHookAction();
+  if (["/init"].indexOf(pathname) !== -1) {
+    return ResponseJson(await bindWebHookAction());
   }
+
+  if (["/getMe","/getWebhookInfo","/deleteWebhook"].indexOf(pathname) !== -1) {
+    return ResponseJson(await handleAction(pathname.substring(1)));
+  }
+
   if (pathname.startsWith(`/telegram`) && pathname.endsWith(`/webhook`)) {
     return telegramWebhookAction(request);
-  }
-  if (pathname.startsWith(`/env`)) {
-    return new Response(JSON.stringify(ENV), {status: 200});
   }
   return null;
 }

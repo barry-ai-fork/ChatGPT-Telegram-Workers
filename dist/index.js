@@ -1,19 +1,33 @@
 // src/env.js
 var ENV = {
+  // OpenAI API Key
   API_KEY: null,
+  // 允许访问的Telegram Token， 设置时以逗号分隔
   TELEGRAM_AVAILABLE_TOKENS: [],
+  // 允许访问的Telegram Token 对应的Bot Name， 设置时以逗号分隔
   TELEGRAM_BOT_NAME: [],
+  // Workers 域名
   WORKERS_DOMAIN: null,
+  // 允许所有人使用
   I_AM_A_GENEROUS_PERSON: false,
+  // 白名单
   CHAT_WHITE_LIST: [],
+  // 群组白名单
   CHAT_GROUP_WHITE_LIST: [],
+  // 群组机器人开关
   GROUP_CHAT_BOT_ENABLE: true,
+  // 群组机器人共享模式
   GROUP_CHAT_BOT_SHARE_MODE: false,
+  // 为了避免4096字符限制，将消息删减
   AUTO_TRIM_HISTORY: false,
+  // 最大历史记录长度
   MAX_HISTORY_LENGTH: 20,
+  // 调试模式
   DEBUG_MODE: false,
-  BUILD_TIMESTAMP: 1678114783,
-  BUILD_VERSION: "4d11d65"
+  // 当前版本
+  BUILD_TIMESTAMP: 1678179825,
+  // 当前版本 commit id
+  BUILD_VERSION: "7216a6d"
 };
 var DATABASE = null;
 function initEnv(env) {
@@ -41,35 +55,47 @@ function initEnv(env) {
     }
   }
   {
-    if (env.TELEGRAM_TOKEN && ENV.TELEGRAM_AVAILABLE_TOKENS.length === 0) {
+    if (env.TELEGRAM_TOKEN && !ENV.TELEGRAM_AVAILABLE_TOKENS.includes(env.TELEGRAM_TOKEN)) {
+      if (env.BOT_NAME && ENV.TELEGRAM_AVAILABLE_TOKENS.length === ENV.TELEGRAM_BOT_NAME.length) {
+        ENV.TELEGRAM_BOT_NAME.push(env.BOT_NAME);
+      }
       ENV.TELEGRAM_AVAILABLE_TOKENS.push(env.TELEGRAM_TOKEN);
-    }
-    if (env.BOT_NAME && ENV.TELEGRAM_BOT_NAME.length === 0) {
-      ENV.TELEGRAM_BOT_NAME.push(env.BOT_NAME);
     }
   }
 }
 
 // src/context.js
 var USER_CONFIG = {
+  // 系统初始化消息
   SYSTEM_INIT_MESSAGE: "\u4F60\u662F\u4E00\u4E2A\u5F97\u529B\u7684\u52A9\u624B",
+  // OpenAI API 额外参数
   OPENAI_API_EXTRA_PARAMS: {}
 };
 var CURRENT_CHAT_CONTEXT = {
   chat_id: null,
   reply_to_message_id: null,
+  // 如果是群组，这个值为消息ID，否则为null
   parse_mode: "Markdown"
 };
 var SHARE_CONTEXT = {
   currentBotId: null,
+  // 当前机器人ID
   currentBotToken: null,
+  // 当前机器人Token
   currentBotName: null,
+  // 当前机器人名称: xxx_bot
   chatHistoryKey: null,
+  // history:chat_id:bot_id:(from_id)
   configStoreKey: null,
+  // user_config:chat_id:bot_id:(from_id)
   groupAdminKey: null,
+  // group_admin:group_id
   chatType: null,
+  // 会话场景, private/group/supergroup等, 来源message.chat.type
   chatId: null,
+  // 会话id, private场景为发言人id, group/supergroup场景为群组id
   speekerId: null
+  // 发言人id
 };
 async function initUserConfig(id) {
   try {
@@ -337,19 +363,22 @@ async function handleCommandMessage(message) {
   return null;
 }
 async function setCommandForTelegram(token) {
+  return await sendPostForTelegram(token, "setMyCommands", {
+    commands: Object.keys(commandHandlers).map((key) => ({
+      command: key,
+      description: commandHandlers[key].help
+    }))
+  });
+}
+async function sendPostForTelegram(token, cmd, body) {
   return await fetch(
-    `https://api.telegram.org/bot${token}/setMyCommands`,
+    `https://api.telegram.org/bot${token}/${cmd}`,
     {
       method: "POST",
       headers: {
         "Content-Type": "application/json"
       },
-      body: JSON.stringify({
-        commands: Object.keys(commandHandlers).map((key) => ({
-          command: key,
-          description: commandHandlers[key].help
-        }))
-      })
+      body: JSON.stringify(body)
     }
   ).then((res) => res.json());
 }
@@ -426,10 +455,10 @@ async function msgCheckEnvIsReady(message) {
   return null;
 }
 async function msgFilterWhiteList(message) {
+  if (ENV.I_AM_A_GENEROUS_PERSON) {
+    return null;
+  }
   if (SHARE_CONTEXT.chatType === "private") {
-    if (ENV.I_AM_A_GENEROUS_PERSON) {
-      return null;
-    }
     if (!ENV.CHAT_WHITE_LIST.includes(`${CURRENT_CHAT_CONTEXT.chat_id}`)) {
       return sendMessageToTelegram(
         `\u4F60\u6CA1\u6709\u6743\u9650\u4F7F\u7528\u8FD9\u4E2A\u547D\u4EE4, \u8BF7\u8BF7\u8054\u7CFB\u7BA1\u7406\u5458\u6DFB\u52A0\u4F60\u7684ID(${CURRENT_CHAT_CONTEXT.chat_id})\u5230\u767D\u540D\u5355`
@@ -614,44 +643,77 @@ async function processMessageByChatType(message) {
   return null;
 }
 async function handleMessage(request) {
-  const { message } = await request.json();
-  const handlers = [
-    msgInitTelegramToken,
-    msgInitChatContext,
-    msgSaveLastMessage,
-    msgCheckEnvIsReady,
-    processMessageByChatType,
-    msgChatWithOpenAI
-  ];
-  for (const handler of handlers) {
-    try {
+  try {
+    console.log("handleMessage");
+    const { message } = await request.json();
+    console.log(message);
+    const handlers = [
+      msgInitTelegramToken,
+      // 初始化token
+      msgInitChatContext,
+      // 初始化聊天上下文: 生成chat_id, reply_to_message_id(群组消息), SHARE_CONTEXT
+      msgSaveLastMessage,
+      // 保存最后一条消息
+      msgCheckEnvIsReady,
+      // 检查环境是否准备好: API_KEY, DATABASE
+      processMessageByChatType,
+      // 根据类型对消息进一步处理
+      msgChatWithOpenAI
+      // 与OpenAI聊天
+    ];
+    for (const handler of handlers) {
       const result = await handler(message, request);
       if (result && result instanceof Response) {
         return result;
       }
-    } catch (e) {
-      console.error(e);
     }
+  } catch (e) {
+    console.error(e);
   }
   return null;
 }
 
 // src/router.js
+function ResponseJson(result, status = 200) {
+  return new Response(JSON.stringify(result), {
+    status,
+    headers: {
+      "content-type": "application/json;charset=UTF-8"
+    }
+  });
+}
 async function bindWebHookAction() {
-  const result = {};
+  let result = {};
   let domain = ENV.WORKERS_DOMAIN;
   if (domain.toLocaleLowerCase().startsWith("http")) {
     domain = new URL(domain).host;
   }
-  for (const token of ENV.TELEGRAM_AVAILABLE_TOKENS) {
+  for (let token of ENV.TELEGRAM_AVAILABLE_TOKENS) {
+    token = token.replace("\n", "");
     const url = `https://${domain}/telegram/${token}/webhook`;
     const id = token.split(":")[0];
+    const webhook = await bindTelegramWebHook(token, url);
+    const command = await setCommandForTelegram(token);
     result[id] = {
-      webhook: await bindTelegramWebHook(token, url),
-      command: await setCommandForTelegram(token)
+      webhook,
+      command
     };
   }
-  return new Response(JSON.stringify(result), { status: 200 });
+  return result;
+}
+async function handleAction(cmd, body = {}) {
+  const result = {};
+  for (let token of ENV.TELEGRAM_AVAILABLE_TOKENS) {
+    token = token.replace("\n", "");
+    const id = token.split(":")[0];
+    console.log({ cmd, body });
+    result[id] = await sendPostForTelegram(token, cmd, body);
+    if (cmd === "getWebhookInfo" && result[id].result.url) {
+      console.log(result[id].result.url);
+      result[id].result.url = "xxx";
+    }
+  }
+  return result;
 }
 async function telegramWebhookAction(request) {
   const resp = await handleMessage(request);
@@ -714,17 +776,18 @@ async function defaultIndexAction() {
 }
 async function handleRequest(request) {
   const { pathname } = new URL(request.url);
+  console.log(pathname);
   if (pathname === `/`) {
     return defaultIndexAction();
   }
-  if (pathname.startsWith(`/init`)) {
-    return bindWebHookAction();
+  if (["/init"].indexOf(pathname) !== -1) {
+    return ResponseJson(await bindWebHookAction());
+  }
+  if (["/getMe", "/getWebhookInfo", "/deleteWebhook"].indexOf(pathname) !== -1) {
+    return ResponseJson(await handleAction(pathname.substring(1)));
   }
   if (pathname.startsWith(`/telegram`) && pathname.endsWith(`/webhook`)) {
     return telegramWebhookAction(request);
-  }
-  if (pathname.startsWith(`/env`)) {
-    return new Response(JSON.stringify(ENV), { status: 200 });
   }
   return null;
 }

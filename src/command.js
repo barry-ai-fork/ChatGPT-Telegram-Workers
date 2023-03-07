@@ -143,19 +143,23 @@ export async function handleCommandMessage(message) {
 }
 
 export async function setCommandForTelegram(token) {
+  return await sendPostForTelegram(token,"setMyCommands",{
+    commands: Object.keys(commandHandlers).map((key) => ({
+      command: key,
+      description: commandHandlers[key].help,
+    })),
+  });
+}
+
+export async function sendPostForTelegram(token,cmd,body) {
   return await fetch(
-      `https://api.telegram.org/bot${token}/setMyCommands`,
+      `https://api.telegram.org/bot${token}/${cmd}`,
       {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          commands: Object.keys(commandHandlers).map((key) => ({
-            command: key,
-            description: commandHandlers[key].help,
-          })),
-        }),
+        body: JSON.stringify(body),
       },
   ).then((res) => res.json());
 }

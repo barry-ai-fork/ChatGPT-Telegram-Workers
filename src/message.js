@@ -321,26 +321,27 @@ export async function processMessageByChatType(message) {
 
 
 export async function handleMessage(request) {
-  const {message} = await request.json();
-
-  // 消息处理中间件
-  const handlers = [
-    msgInitTelegramToken, // 初始化token
-    msgInitChatContext, // 初始化聊天上下文: 生成chat_id, reply_to_message_id(群组消息), SHARE_CONTEXT
-    msgSaveLastMessage, // 保存最后一条消息
-    msgCheckEnvIsReady, // 检查环境是否准备好: API_KEY, DATABASE
-    processMessageByChatType, // 根据类型对消息进一步处理
-    msgChatWithOpenAI, // 与OpenAI聊天
-  ];
-  for (const handler of handlers) {
-    try {
+  try {
+    console.log("handleMessage")
+    const {message} = await request.json();
+    console.log(message)
+    // 消息处理中间件
+    const handlers = [
+      msgInitTelegramToken, // 初始化token
+      msgInitChatContext, // 初始化聊天上下文: 生成chat_id, reply_to_message_id(群组消息), SHARE_CONTEXT
+      msgSaveLastMessage, // 保存最后一条消息
+      msgCheckEnvIsReady, // 检查环境是否准备好: API_KEY, DATABASE
+      processMessageByChatType, // 根据类型对消息进一步处理
+      msgChatWithOpenAI, // 与OpenAI聊天
+    ];
+    for (const handler of handlers) {
       const result = await handler(message, request);
       if (result && result instanceof Response) {
         return result;
       }
-    } catch (e) {
-      console.error(e);
     }
+  } catch (e) {
+    console.error(e);
   }
   return null;
 }

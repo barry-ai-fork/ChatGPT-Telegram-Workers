@@ -147,3 +147,4 @@ out
 .vscode
 /wrangler.toml
 /test/test-env.js
+dist/timestamp
